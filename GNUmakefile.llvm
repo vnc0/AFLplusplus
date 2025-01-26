@@ -1,3 +1,25 @@
+$(info [*] Compiling for iOS)
+CROSSCOMPILE ?= 1
+OS := ios
+
+ifeq ($(CROSSCOMPILE),1)
+  TARGET_SDK_PATH := $(shell xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)
+  ifeq ($(TARGET_SDK_PATH),)
+    $(error Could not find iPhoneOS SDK)
+  endif
+else
+  TARGET_SDK_PATH ?=  /var/root/sdk/iPhoneOS14.2.sdk
+  ifeq ($(TARGET_SDK_PATH),)
+    $(error Could not find iPhoneOS SDK)
+  endif
+endif
+
+CFLAGS := -isysroot $(TARGET_SDK_PATH) -target arm64-apple-ios14.0 \
+          -DUSEMMAP=1 -DTARGET_OS_IOS -DTARGET_OS_IPHONE
+CXXFLAGS := $(CFLAGS)
+CPPFLAGS := $(CFLAGS)
+LDFLAGS := -L$(TARGET_SDK_PATH)/usr/lib
+
 # american fuzzy lop++ - LLVM instrumentation
 # -----------------------------------------
 #
@@ -416,6 +438,12 @@ instrumentation/afl-common.o: ./src/afl-common.c
 
 ./afl-cc: src/afl-cc.c instrumentation/afl-common.o
 	$(CC) $(CLANG_CFL) $(CFLAGS) $(CPPFLAGS) $< instrumentation/afl-common.o -o $@ -DLLVM_MINOR=$(LLVM_MINOR) -DLLVM_MAJOR=$(LLVM_MAJOR) $(LDFLAGS) -DCFLAGS_OPT=\"$(CFLAGS_OPT)\" -lm
+ifeq "$(OS)" "ios"
+	@echo "[*] Signing afl-cc for iOS"
+	@test -f entitlements.plist || { echo "[-] Missing entitlements.plist"; }
+	@test -f afl-cc || { echo "[-] Binary afl-cc not found"; }
+	@ldid -Sentitlements.plist afl-cc || { echo "[-] Failed to sign afl-cc"; }
+endif
 	@ln -sf afl-cc ./afl-c++
 	@ln -sf afl-cc ./afl-gcc
 	@ln -sf afl-cc ./afl-g++

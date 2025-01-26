@@ -1,3 +1,56 @@
+$(info [*] Compiling for iOS)
+CROSSCOMPILE ?= 1
+OS := ios
+ARCH := arm64
+
+ifeq ($(CROSSCOMPILE),1)
+  HOMEBREW_BASE := /opt/homebrew/opt
+  export PATH := $(HOMEBREW_BASE)/coreutils/libexec/gnubin:$(HOMEBREW_BASE)/llvm@16/bin:/usr/local/bin:$(PATH)
+
+  ifeq ($(wildcard $(HOMEBREW_BASE)/coreutils/libexec/gnubin),)
+    $(warning Homebrew coreutils not found at $(HOMEBREW_BASE)/coreutils)
+  endif
+  ifeq ($(wildcard $(HOMEBREW_BASE)/llvm/bin),)
+    $(warning Homebrew llvm not found at $(HOMEBREW_BASE)/llvm)
+  endif
+
+  TARGET_SDK_PATH := $(shell xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)
+  ifeq ($(TARGET_SDK_PATH),)
+    $(error Could not find iPhoneOS SDK)
+  endif
+  
+  HOST_SDK_PATH := $(shell xcrun --sdk macosx --show-sdk-path 2>/dev/null)
+  ifeq ($(HOST_SDK_PATH),)
+    $(error Could not find macOS SDK)
+  endif
+  
+  CC := $(shell xcrun --sdk iphoneos --find clang)
+  CXX := $(shell xcrun --sdk iphoneos --find clang++)
+else
+  TARGET_SDK_PATH ?=  /var/root/sdk/iPhoneOS14.2.sdk
+  ifeq ($(TARGET_SDK_PATH),)
+    $(error Could not find iPhoneOS SDK)
+  endif
+  HOST_SDK_PATH ?= $(TARGET_SDK_PATH)
+  CC ?= clang
+  CXX ?= clang++
+endif
+
+CFLAGS := -isysroot $(TARGET_SDK_PATH) -target arm64-apple-ios14.0 \
+          -DUSEMMAP=1 -DTARGET_OS_IOS -DTARGET_OS_IPHONE
+CXXFLAGS := $(CFLAGS)
+CPPFLAGS := $(CFLAGS)
+ifeq ($(CROSSCOMPILE),1)
+  HOST_CFLAGS := -isysroot $(HOST_SDK_PATH)
+else
+  HOST_CFLAGS := $(CFLAGS)
+endif
+
+LDFLAGS := -L$(TARGET_SDK_PATH)/usr/lib
+AFL_CFLAGS:=$(AFL_CFLAGS) -Wno-deprecated-declarations
+GUM_ARCH:=""
+
+# frida-mode makefile
 
 PWD:=$(shell pwd)/
 ROOT:=$(PWD)../
@@ -95,29 +148,32 @@ endif
 
 GUM_ARCH="-$(ARCH)"
 
+# And os not set to ios
 ifeq "$(shell uname)" "Darwin"
- OS:=macos
- AFL_CFLAGS:=$(AFL_CFLAGS) -Wno-deprecated-declarations
- GUM_ARCH:=""
- ifeq "$(ARCH)" "arm64"
-  TARGET_CC= \
-  	"clang" \
-  	"-target" \
-	"arm64-apple-macos10.9"
-  TARGET_CXX= \
- 	"clang++" \
- 	"-target" \
-	"arm64-apple-macos10.9"
- else
-  TARGET_CC= \
-  	"clang" \
-  	"-target" \
-	"x86_64-apple-macos10.9"
-  TARGET_CXX= \
- 	"clang++" \
- 	"-target" \
-	"x86_64-apple-macos10.9"
- endif
+	ifneq "$(OS)" "ios"
+	OS:=macos
+	AFL_CFLAGS:=$(AFL_CFLAGS) -Wno-deprecated-declarations
+	GUM_ARCH:=""
+	ifeq "$(ARCH)" "arm64"
+	TARGET_CC= \
+		"clang" \
+		"-target" \
+		"arm64-apple-macos10.9"
+	TARGET_CXX= \
+		"clang++" \
+		"-target" \
+		"arm64-apple-macos10.9"
+	else
+	TARGET_CC= \
+		"clang" \
+		"-target" \
+		"x86_64-apple-macos10.9"
+	TARGET_CXX= \
+		"clang++" \
+		"-target" \
+		"x86_64-apple-macos10.9"
+	endif
+	endif
 else
 ifdef DEBUG
  AFL_CFLAGS:=$(AFL_CFLAGS) -Wno-prio-ctor-dtor
@@ -247,7 +303,7 @@ $(GUM_DEVIT_HEADER): $(FRIDA_MAKEFILE) | $(FRIDA_BUILD_DIR)
 	echo "#include <gum/gumlibc.h>" >> $@
 	echo "#include <gumjs/gumscriptbackend.h>" >> $@
 
-ifeq "$(OS)" "macos"
+ifeq "$(OS)" "macos" || "$(OS)" "ios"
 
 CFLAGS+=-I $(FRIDA_DIR)build/frida-$(OS)-$(ARCH)/include/frida-1.0 \
 	    -I $(FRIDA_DIR)build/sdk-$(OS)-$(ARCH)/include/glib-2.0/ \
@@ -372,7 +428,9 @@ $(AFL_PERFORMANCE_OBJ): $(AFL_PERFORMANCE_SRC)
 ############################### JS #############################################
 
 $(BIN2C): $(BIN2C_SRC)
-	$(HOST_CC) -D_GNU_SOURCE -o $@ $<
+	$(HOST_CC) $(HOST_CFLAGS) -D_GNU_SOURCE -o $@ $<
+	@echo "[+] Signing bin2c"
+	@ldid -S../entitlements.plist $@ || { echo "[-] Failed to sign bin2c"; };
 
 $(JS_SRC): $(JS) $(BIN2C)| $(BUILD_DIR)
 	cd $(JS_DIR) && $(BIN2C) api_js $(JS) $@
@@ -405,6 +463,7 @@ $(foreach src,$(SOURCES),$(eval $(call BUILD_SOURCE,$(src),$(OBJ_DIR)$(notdir $(
 
 $(FRIDA_TRACE): $(GUM_DEVIT_LIBRARY) $(GUM_DEVIT_HEADER) $(OBJS) $(JS_OBJ) $(AFL_COMPILER_RT_OBJ) $(AFL_PERFORMANCE_OBJ) GNUmakefile | $(BUILD_DIR)
 	$(TARGET_CXX) \
+		$(CFLAGS) \
 		$(OBJS) \
 		$(JS_OBJ) \
 		$(GUM_DEVIT_LIBRARY) \

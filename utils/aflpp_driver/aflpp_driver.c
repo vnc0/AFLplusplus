@@ -320,15 +320,15 @@ __attribute__((weak)) int LLVMFuzzerRunDriver(
   int    argc = *argcp;
   char **argv = *argvp;
 
-  if (getenv("AFL_GDB")) {
-
-    char cmd[64];
-    snprintf(cmd, sizeof(cmd), "cat /proc/%d/maps", getpid());
-    system(cmd);
-    fprintf(stderr, "DEBUG: aflpp_driver pid is %d\n", getpid());
-    sleep(1);
-
-  }
+  //if (getenv("AFL_GDB")) {
+//
+  //  char cmd[64];
+  //  snprintf(cmd, sizeof(cmd), "cat /proc/%d/maps", getpid());
+  //  system(cmd);
+  //  fprintf(stderr, "DEBUG: aflpp_driver pid is %d\n", getpid());
+  //  sleep(1);
+//
+  //}
 
   bool in_afl = !(!getenv(SHM_FUZZ_ENV_VAR) || !getenv(SHM_ENV_VAR) ||
                   fcntl(FORKSRV_FD, F_GETFD) == -1 ||

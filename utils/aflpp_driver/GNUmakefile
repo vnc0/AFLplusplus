@@ -1,11 +1,35 @@
+$(info [*] Compiling for iOS)
+CROSSCOMPILE ?= 1
+OS := ios
+
+ifeq ($(CROSSCOMPILE),1)
+  TARGET_SDK_PATH := $(shell xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)
+  ifeq ($(TARGET_SDK_PATH),)
+    $(error Could not find iPhoneOS SDK)
+  endif
+else
+  TARGET_SDK_PATH ?=  /var/root/sdk/iPhoneOS14.2.sdk
+  ifeq ($(TARGET_SDK_PATH),)
+    $(error Could not find iPhoneOS SDK)
+  endif
+endif
+
+CFLAGS := -isysroot $(TARGET_SDK_PATH) -target arm64-apple-ios14.0 \
+          -DUSEMMAP=1 -DTARGET_OS_IOS -DTARGET_OS_IPHONE
+LDFLAGS := -L$(TARGET_SDK_PATH)/usr/lib
+
+# aflpp_driver
+
 ifeq "" "$(LLVM_CONFIG)"
   LLVM_CONFIG=llvm-config
 endif
 
 ifeq "$(shell uname -s)" "Darwin"
-  # On some odd MacOS system configurations, the Xcode sdk path is not set correctly
-  SDK_LD = -L$(shell xcrun --show-sdk-path)/usr/lib
-  LDFLAGS += $(SDK_LD)
+  ifneq ($(OS),ios)
+	# On some odd MacOS system configurations, the Xcode sdk path is not set correctly
+	SDK_LD = -L$(shell xcrun --show-sdk-path)/usr/lib
+	LDFLAGS += $(SDK_LD)
+  endif
 endif
 
 ifeq "" "$(LLVM_CONFIG)"
@@ -18,7 +42,7 @@ ifneq "" "$(LLVM_BINDIR)"
   endif
 endif
 
-CFLAGS := -O3 -funroll-loops -g -fPIC
+CFLAGS += -O3 -funroll-loops -g -fPIC
 
 all:	libAFLDriver.a libAFLQemuDriver.a aflpp_qemu_driver_hook.so
 

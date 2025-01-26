@@ -1,3 +1,60 @@
+$(info [*] Compiling for iOS)
+$(info [*] Works only with LLVM 14 on iOS for some reason )
+# export LLVM_CONFIG=/usr/lib/llvm-14/bin/llvm-config
+CROSSCOMPILE ?= 1
+OS := ios
+
+ifeq ($(CROSSCOMPILE),1)
+  HOMEBREW_BASE := /opt/homebrew/opt
+  export PATH := $(HOMEBREW_BASE)/coreutils/libexec/gnubin:$(HOMEBREW_BASE)/llvm@16/bin:/usr/local/bin:$(PATH)
+
+  ifeq ($(wildcard $(HOMEBREW_BASE)/coreutils/libexec/gnubin),)
+    $(warning Homebrew coreutils not found at $(HOMEBREW_BASE)/coreutils)
+  endif
+  ifeq ($(wildcard $(HOMEBREW_BASE)/llvm/bin),)
+    $(warning Homebrew llvm not found at $(HOMEBREW_BASE)/llvm)
+  endif
+
+  TARGET_SDK_PATH := $(shell xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)
+  ifeq ($(TARGET_SDK_PATH),)
+    $(error Could not find iPhoneOS SDK)
+  endif
+  
+  HOST_SDK_PATH := $(shell xcrun --sdk macosx --show-sdk-path 2>/dev/null)
+  ifeq ($(HOST_SDK_PATH),)
+    $(error Could not find macOS SDK)
+  endif
+  
+  CC := $(shell xcrun --sdk iphoneos --find clang)
+  CXX := $(shell xcrun --sdk iphoneos --find clang++)
+else
+  TARGET_SDK_PATH ?=  /var/root/sdk/iPhoneOS14.2.sdk
+  ifeq ($(TARGET_SDK_PATH),)
+    $(error Could not find iPhoneOS SDK)
+  endif
+  HOST_SDK_PATH ?= $(TARGET_SDK_PATH)
+  CC ?= clang
+  CXX ?= clang++
+endif
+
+CFLAGS := -isysroot $(TARGET_SDK_PATH) -target arm64-apple-ios14.0 \
+          -DUSEMMAP=1 -DTARGET_OS_IOS -DTARGET_OS_IPHONE
+CXXFLAGS := $(CFLAGS)
+CPPFLAGS := $(CFLAGS)
+ifeq ($(CROSSCOMPILE),1)
+  HOST_CFLAGS := -isysroot $(HOST_SDK_PATH)
+else
+  HOST_CFLAGS := $(CFLAGS)
+endif
+
+LDFLAGS := -L$(TARGET_SDK_PATH)/usr/lib
+AFL_CFLAGS:=$(AFL_CFLAGS) -Wno-deprecated-declarations
+GUM_ARCH:=""
+DEB_DIR ?= deb
+DEB_NAME ?= aflplusplus-ios
+DEB_ARCH ?= iphoneos-arm64
+DEB_MAINTAINER ?= "Your Name <your.email@example.com>"
+
 #
 # american fuzzy lop++ - makefile
 # -----------------------------
@@ -109,9 +166,11 @@ ifneq "$(SYS)" "Darwin"
  #  override CFLAGS_OPT += -D_FORTIFY_SOURCE=1
  #endif
 else
-  # On some odd MacOS system configurations, the Xcode sdk path is not set correctly
-  SDK_LD = -L$(shell xcrun --show-sdk-path)/usr/lib
-  override LDFLAGS += $(SDK_LD)
+  ifneq "$(OS)" "ios"
+	# On some odd MacOS system configurations, the Xcode sdk path is not set correctly
+	SDK_LD = -L$(shell xcrun --show-sdk-path)/usr/lib
+	override LDFLAGS += $(SDK_LD)
+  endif
 endif
 
 COMPILER_TYPE=$(shell $(CC) --version|grep "Free Software Foundation")
@@ -325,7 +384,7 @@ ifdef TEST_MMAP
 endif
 
 .PHONY: all
-all:	test_x86 test_shm test_python ready $(PROGS) llvm gcc_plugin test_build all_done
+all:	test_x86 test_shm test_python ready $(PROGS) llvm sign gcc_plugin test_build all_done
 	-$(MAKE) -C utils/aflpp_driver
 	@echo
 	@echo
@@ -832,6 +891,40 @@ endif
 	cp -r testcases/ $${DESTDIR}$(MISC_PATH)
 	cp -r dictionaries/ $${DESTDIR}$(MISC_PATH)
 	cp injections.dic $${DESTDIR}$(MISC_PATH)
+
+.PHONY: sign
+sign: $(PROGS)
+ifeq ($(OS),ios)
+	@echo "[*] Signing iOS binaries"
+	@test -f entitlements.plist || { echo "[-] Missing entitlements.plist"; exit 1; }
+	@for bin in $^; do \
+		test -f $$bin || { echo "[-] Binary $$bin not found"; continue; }; \
+		echo "[*] Signing $$bin"; \
+		ldid -Sentitlements.plist $$bin || { echo "[-] Failed to sign $$bin"; }; \
+	done
+endif
+
+.PHONY: deb
+deb: all sign
+ifeq ($(OS),ios)
+	@echo "[*] Creating DEB package structure"
+	@mkdir -p $(DEBIAN_DIR)
+	@echo "Package: $(DEB_NAME)" > $(DEBIAN_DIR)/control
+	@echo "Name: AFL++ for iOS" >> $(DEBIAN_DIR)/control
+	@echo "Version: $(VERSION)" >> $(DEBIAN_DIR)/control
+	@echo "Architecture: $(DEB_ARCH)" >> $(DEBIAN_DIR)/control
+	@echo "Maintainer: $(DEB_MAINTAINER)" >> $(DEBIAN_DIR)/control
+	@echo "Description: AFL++ for iOS" >> $(DEBIAN_DIR)/control
+	@echo "Homepage: https://github.com/AFLplusplus/AFLplusplus" >> $(DEBIAN_DIR)/control
+	
+	@echo "[*] Installing files to package directory"
+	$(MAKE) install DESTDIR=$(DEB_DIR)
+	
+	@echo "[*] Building final DEB package"
+	$(THEOS)/bin/dm.pl -Zlzma -z9 $(DEB_DIR) $(DEB_NAME).deb
+else
+	@echo "[-] DEB packaging is only supported for iOS"
+endif
 
 .PHONY: uninstall
 uninstall:
