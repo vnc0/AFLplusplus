@@ -53,9 +53,15 @@ LDFLAGS+= -static-libstdc++ \
 		  -llog \
 		  -shared
 else
+ifdef IS_IOS
+LDFLAGS+=-dynamiclib \
+         -lpthread \
+         -lresolv
+else
 LDFLAGS+=-shared \
 		 -lpthread \
 		 -lresolv
+endif
 endif
 
 ifdef DEBUG
@@ -71,7 +77,11 @@ CFLAGS+=-Wno-pointer-arith
 endif
 
 FRIDA_BUILD_DIR:=$(BUILD_DIR)frida/
-FRIDA_TRACE:=$(BUILD_DIR)afl-frida-trace.so
+ifdef IS_IOS
+  FRIDA_TRACE:=$(BUILD_DIR)afl-frida-trace.dylib
+else
+  FRIDA_TRACE:=$(BUILD_DIR)afl-frida-trace.so
+endif
 FRIDA_TRACE_LIB:=$(BUILD_DIR)libafl-frida-trace.a
 FRIDA_TRACE_EMBEDDED:=$(BUILD_DIR)afl-frida-trace-embedded
 
@@ -216,10 +226,14 @@ AFL_PERFORMANCE_OBJ:=$(OBJ_DIR)afl-performance.o
 
 HOOK_DIR:=$(PWD)hook/
 AFLPP_FRIDA_DRIVER_HOOK_SRC=$(HOOK_DIR)frida_hook.c
-AFLPP_FRIDA_DRIVER_HOOK_OBJ=$(BUILD_DIR)frida_hook.so
-
 AFLPP_QEMU_DRIVER_HOOK_SRC:=$(HOOK_DIR)qemu_hook.c
-AFLPP_QEMU_DRIVER_HOOK_OBJ:=$(BUILD_DIR)qemu_hook.so
+ifdef IS_IOS
+  AFLPP_FRIDA_DRIVER_HOOK_OBJ=$(BUILD_DIR)frida_hook.dylib
+  AFLPP_QEMU_DRIVER_HOOK_OBJ:=$(BUILD_DIR)qemu_hook.dylib
+else
+  AFLPP_FRIDA_DRIVER_HOOK_OBJ=$(BUILD_DIR)frida_hook.so
+  AFLPP_QEMU_DRIVER_HOOK_OBJ:=$(BUILD_DIR)qemu_hook.so
+endif
 
 ifneq "$(shell uname)" "Darwin"
 ADDR_DIR:=$(PWD)addr/
